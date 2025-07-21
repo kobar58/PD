@@ -1,106 +1,88 @@
 #include <Servo.h>
 
-// --- ピンの定義 ---
-const int lightSensorPin = A0; // 光センサーのピン
-const int speakerPin = 3;      // スピーカーのピン
-const int buttonPin = 2;       // 緊急停止ボタンのピン
+const int lightSensorPin = A0;
+const int speakerPin = 3;      // tone()用スピーカー
+const int speakerPin2 = 5;     // PWM的なスピーカー
+const int buttonPin = 2;
 
-// --- サーボモーターのオブジェクトを1つだけ宣言 ---
-Servo motor; 
-
-// --- 停止状態を管理するフラグ ---
+Servo motor;
 bool stopped = false;
 
-// --- 音の点滅（ビープ音）を管理するための変数 ---
-unsigned long lastBeepTime = 0;   // 最後に音の状態を変えた時刻を記録
-bool isBeeping = false;           // 現在、音が鳴っているかどうかの状態
-const long beepInterval = 300;    // 音のリズム（0.3秒間隔）
+unsigned long lastBeepTime = 0;
+unsigned long lastToggleTime = 0;  // 自作矩形波のタイミング用
+bool isBeeping = false;
+bool speaker2State = false;
+const long beepInterval = 300;
 
-void setup()
-{
-  // --- 各ピンのモードを設定 ---
+const int freq2 = 1500; // ピン5の音程
+const int halfPeriod2 = 1000000 / freq2 / 2; // μs単位
+
+void setup() {
   pinMode(speakerPin, OUTPUT);
+  pinMode(speakerPin2, OUTPUT);
   pinMode(buttonPin, INPUT_PULLUP);
 
-  // --- モーターをピン8に接続 ---
   motor.attach(8);
-
-  // シリアル通信を開始（デバッグ用）
   Serial.begin(9600);
 }
 
-void loop()
-{
-  // ボタンが押されたら、全ての動作を止める
-  if (digitalRead(buttonPin) == LOW)
-  {
+void loop() {
+  if (digitalRead(buttonPin) == LOW) {
     stopAll();
     stopped = true;
   }
 
-  // 停止フラグが立っていない場合のみ、以下の処理を実行
-  if (!stopped)
-  {
-    // 光センサーの値を読み取る
+  if (!stopped) {
     int lightValue = analogRead(lightSensorPin);
     Serial.println(lightValue);
 
-    // もし光センサーの値が500未満（暗い）なら
-    if (lightValue < 500)
-    {
-      // モーターを動かし続ける
+    if (lightValue < 500) {
       moveMotor();
 
-      // 音を点滅させる処理
       unsigned long currentTime = millis();
       if (currentTime - lastBeepTime >= beepInterval) {
-        lastBeepTime = currentTime; 
-
+        lastBeepTime = currentTime;
         isBeeping = !isBeeping;
 
         if (isBeeping) {
-          makeNoise(1000); // 音を鳴らす
+          makeNoise();
         } else {
-          stopNoise();   // 音を消す
+          stopNoise();
         }
       }
-    }
-    // そうでなければ（明るいなら）
-    else
-    {
-      // 全ての動作を停止させ続ける
+
+      // ピン5で矩形波の手動出力（擬似tone）
+      if (isBeeping && micros() - lastToggleTime >= halfPeriod2) {
+        lastToggleTime = micros();
+        speaker2State = !speaker2State;
+        digitalWrite(speakerPin2, speaker2State ? HIGH : LOW);
+      }
+
+    } else {
       stopAll();
     }
   }
 }
 
-// --- 関数定義 ---
-
-void makeNoise(int freq)
-{
-  tone(speakerPin, freq);
+void makeNoise() {
+  tone(speakerPin, 1000); // ピン3で主音
+  lastToggleTime = micros(); // ピン5のトグル開始
 }
 
-void stopNoise()
-{
+void stopNoise() {
   noTone(speakerPin);
+  digitalWrite(speakerPin2, LOW);
 }
 
-// モーターを前進させる関数
-void moveMotor()
-{
-  motor.write(0);   // モーターを回転させる（0または180で回転方向を選ぶ）
+void moveMotor() {
+  motor.write(0);
 }
 
-// モーターを停止させる関数
-void stopMotor()
-{
-  motor.write(90); // モーターを停止
+void stopMotor() {
+  motor.write(90);
 }
 
-// 全ての動作（音とモーター）を停止させる関数
-void stopAll()
-{
+void stopAll() {
   stopNoise();
   stopMotor();
   isBeeping = false;
